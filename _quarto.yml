@@ -1,5 +1,9 @@
 project:
-  title: "lab_attendance"
+  title: "Lab 3: Covid-19"
+  subtitle: "Ecosystem Science and Sustainability 330"""
+  author: 
+    - name: Ainsley Denham
+      email: denhamam@colostate.edu
   output-dir: docs
   type: website
   

@@ -4,23 +4,281 @@ format: html
 editor: visual
 ---
 
-## Quarto
-
-Quarto enables you to weave together content and executable code into a finished document. To learn more about Quarto see <https://quarto.org>.
-
-## Running Code
-
-When you click the **Render** button a document will be generated that includes both content and the output of embedded code. You can embed code like this:
-
 ```{r}
-1 + 1
+##librarys
+library(zoo)
+library(flextable)
+library(tidyverse)
+library(dplyr)
 ```
 
-You can add options to executable code like this
+## Question 1 
 
 ```{r}
-#| echo: false
-2 * 2
+library(tidyverse); library(flextable)
+data <- read.csv("https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-counties.csv", header = TRUE)
+head(data)
 ```
 
-The `echo: false` option disables the printing of code (only output is displayed).
+## Question 2
+
+```{r}
+my.date <- as.Date("2022-02-01")
+my.state <- "Colorado"
+co_data <- data %>%
+  filter(state == my.state) %>%
+  group_by(county) %>%
+  arrange(county,date) %>%
+  mutate(new_cases = cases - lag(cases, default = first(cases)), new_deaths = deaths - lag(deaths, default = first(deaths))) %>%
+  ungroup()
+co_latest <- co_data %>%
+  filter(date == my.date)
+
+cummulative_cases <- co_latest %>%
+  arrange(desc(cases)) %>%
+  select(county,cases) %>%
+  head(5)
+
+new_cases <- co_latest %>%
+  arrange(desc(new_cases)) %>%
+  select(county, new_cases) %>%
+  head(5)
+
+print(cummulative_cases)
+print(new_cases)
+```
+```{r}
+library(readr)
+temp_file <- tempfile(fileext = ".csv")
+download.file("https://www2.census.gov/programs-surveys/popest/datasets/2020-2023/counties/totals/co-est2023-alldata.csv", 
+              temp_file, mode = "wb")
+pop_data <- read_csv(temp_file)
+unlink(temp_file)
+head(pop_data)
+```
+
+## Question 3
+
+```{r}
+pop_url <- 'https://www2.census.gov/programs-surveys/popest/datasets/2020-2023/counties/totals/co-est2023-alldata.csv'
+pop_data <- read.csv(pop_url, stringsAsFactors = FALSE)
+colorado <- read.csv("https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-counties.csv", header = TRUE)
+pop_clean <- pop_data %>%
+  filter("COUNTY" != "000") %>%
+  mutate(fips = sprintf("%05s", as.numeric(paste0(STATE, COUNTY))))
+colorado <- colorado %>%
+  mutate(fips = as.character(fips))
+pop_joined <- pop_clean %>%
+  right_join(colorado, by = "fips") %>%
+  select(fips, date, cases, deaths, contains("NAME"), contains("2021")) %>%
+  group_by(fips) %>%
+  arrange(fips, date) %>%
+  mutate(new_cases = cases - lag(cases), new_deaths = deaths - lag(deaths)) %>%
+  ungroup()
+print(pop_joined, 5)
+
+```
+```{r}
+percap <- pop_joined %>%
+  filter(date == my.date) %>%
+  mutate(per_cap_cases = cases / POPESTIMATE2021, per_cap_new = new_cases / POPESTIMATE2021, per_cap_deaths = deaths / POPESTIMATE2021)
+print(percap)
+```
+```{r}
+library(flextable)
+percap %>%
+  slice_max(per_cap_cases, n = 5) %>%
+  select(CTYNAME, per_cap_cases) %>%
+  flextable() %>%
+  flextable::set_caption("Counties with Most Cumulative Covid Cases Per Capita")
+```
+```{r}
+library(flextable)
+percap %>%
+  slice_max(per_cap_new, n = 5) %>%
+  select(CTYNAME, per_cap_new) %>%
+  flextable() %>%
+  flextable::set_caption("Counties with Most New Covid Cases Per Capita")
+```
+
+
+## Question 4
+```{r}
+colorado$date <- as.Date(colorado$date)
+latest_date <- max(colorado$date, na.rm = TRUE)
+last_14_days <- colorado %>%
+  filter(date >= (latest_date - 14))
+last_14_days_summary <- last_14_days %>%
+  group_by("county") %>%
+  summarize(
+    total_new_cases = sum(new_cases, na.rm = TRUE),
+    total_population = unique(POPESTIMATE2021), 
+    new_cases_per_100k = (total_new_cases / total_population) * 100000
+  ) %>%
+  arrange(desc(new_cases_per_100k))
+```
+
+```{r}
+library(dplyr)
+library(lubridate)
+
+pop_data <- data %>%
+  mutate(
+    STATE_FIP = str_pad(as.character(STATE), 2, pad = "0"),
+    COUNTY_FIP = str_pad(as.character(COUNTY), 3, pad = "0"),
+    FIP <- paste0(STATE_FIP, COUNTY_FIP)
+  )
+combined_data <- left_join(data, pop_data, by = fips)
+
+combined_data <- combined_data %>%
+  mutate(date = as.Date(date)) 
+
+max_date <- max(combined_data$date)
+
+last_14_days_data <- combined_data %>%
+  filter(date >= (max_date - 14))
+
+new_cases_per_100k <- last_14_days_data %>%
+  group_by(NAME) %>%
+  summarize(
+    total_new_cases = sum(new_cases, na.rm = TRUE), 
+    population = first(`2021`), 
+    new_cases_per_100k = (total_new_cases / population) * 100000
+  ) %>%
+  arrange(desc(new_cases_per_100k))
+
+top_5_new_cases <- head(new_cases_per_100k, 5)
+print(top_5_new_cases)
+
+watch_list_counties <- new_cases_per_100k %>%
+  filter(new_cases_per_100k > 100)
+
+print(nrow(watch_list_counties))
+
+print(watch_list_counties)
+
+
+```
+
+
+## Question 5
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(lubridate)
+
+covid_deaths_vector <- c(400, 20, 500, 10, 5, 6, 300, 25, 15, 5, 10, 10, 8, 12, 5, 80, 300, 6, 180, 20, 200, 15, 70, 20, 5, 10, 10, 1, 50, 2, 100, 4, 5, 100, 5, 200, 15, 10, 3, 25, 1, 5, 10, 30, 6, 12, 8, 7, 20, 15, 8, 10, 5, 15, 7, 3, 1, 10, 8)
+
+full_covid_deaths <- c(covid_deaths_vector, rep(0, 64 - length(covid_deaths_vector)))
+
+county_deaths <- data.frame(
+  county_name = c("Adams", "Alamosa", "Arapahoe", "Archuleta", "Baca", "Bent", "Boulder", "Broomfield", "Chaffee", "Cheyenne", "Clear Creek", "Conejos", "Costilla", "Crowley", "Custer", "Delta", "Denver", "Dolores", "Douglas", "Eagle", "El Paso", "Elbert", "Fremont", "Garfield", "Gilpin", "Grand", "Gunnison", "Hinsdale", "Huerfano", "Jackson", "Jefferson", "Kiowa", "Kit Carson", "La Plata", "Lake", "Larimer", "Las Animas", "Lincoln", "Logan", "Mesa", "Mineral", "Moffat", "Montezuma", "Montrose", "Morgan", "Otero", "Ouray", "Park", "Phillips", "Pitkin", "Prowers", "Pueblo", "Rio Blanco", "Rio Grande", "Routt", "Saguache", "San Juan", "San Miguel", "Sedgwick", "Summit", "Teller", "Washington", "Weld", "Yuma"),
+  total_deaths_2021 = c(4104, 191, 4960, 137, 78, 87, 2167, 437, 169, 25, 71, 146, 54, 67, 60, 509, 5187, 46, 1998, 188, 6057, 222, 759, 431, 42, 102, 91, 4, 140, 14, 5302, 20, 104, 450, 58, 2815, 236, 66, 275, 2033, 8, 157, 373, 620, 327, 314, 36, 125, 69, 73, 181, 2501, 73, 174, 135, 70, 6, 34, 34, 87, 285, 68, 2528, 102),
+  covid_deaths = full_covid_deaths
+)
+
+county_deaths <- county_deaths %>%
+  mutate(
+    percentage_covid_deaths = (covid_deaths / total_deaths_2021) * 100
+  )
+
+print("Problem counties after correction:")
+print(county_deaths[county_deaths$county_name %in% c("Kiowa", "Mineral"), ])
+
+high_covid_deaths <- county_deaths %>%
+  filter(percentage_covid_deaths >= 20)
+
+print("Counties with ≥20% COVID deaths:")
+print(high_covid_deaths[high_covid_deaths$county_name %in% c("Kiowa", "Mineral"), ])
+
+ggplot(high_covid_deaths, aes(x = reorder(county_name, -percentage_covid_deaths), y = percentage_covid_deaths)) +
+  geom_bar(stat = "identity", fill = "green") +
+  coord_flip() +
+  labs(
+    title = "Counties with COVID Deaths ≥20% of Annual Death Toll (2021)",
+    x = "County",
+    y = "Percentage of COVID Deaths (%)") +
+  theme_minimal() +
+  theme(
+    axis.text.y = element_text(size = 10),
+    plot.title = element_text(size = 12, face = "bold")
+  ) +
+  geom_text(aes(label = sprintf("%.1f%%", percentage_covid_deaths)), 
+            hjust = -0.1,
+            size = 3.5)
+```
+
+
+
+## Question 6 
+```{r}
+library(dplyr)
+library(ggplot2)
+library(zoo)
+
+state_pop_data <- tibble(
+    state = c("Alabama", "Colorado", "New York", "Ohio"),
+    population = c(5024279, 5773714, 19453561, 11689100)
+)
+
+state_covid_per_capita <- data %>%
+    filter(state %in% c("Alabama", "Colorado", "New York", "Ohio")) %>%
+    left_join(state_pop_data, by = "state") %>%
+    group_by(state, date, population) %>%
+    summarise(daily_cases = sum(cases, na.rm = TRUE), .groups = 'drop') %>%
+    group_by(state) %>%
+    mutate(
+        daily_new_cases = daily_cases - lag(daily_cases),
+        new_cases_per_100k = (daily_new_cases / population) * 100000,
+        rolling_avg_per_100k = zoo::rollmean(new_cases_per_100k, k = 7, fill = NA, align = "right")
+    ) %>%
+    ungroup()
+
+ggplot(state_covid_per_capita, aes(x = date, y = rolling_avg_per_100k, color = state)) +
+    geom_line(size = 1) +
+    labs(
+        title = "7-day Rolling Average of New COVID-19 Cases per 100,000 Residents",
+        subtitle = "Comparing Four States: New York, Colorado, Alabama, Ohio",
+        x = "Date",
+        y = "New Cases per 100,000",
+        color = "State",
+        caption = "Data Source: NY Times & US Census"
+    ) +
+    theme_minimal()
+```
+
+## Question 7
+```{r}
+library(dplyr)
+library(readr)
+library(ggplot2)
+
+county_centroids <- read_csv("https://raw.githubusercontent.com/mikejohnson51/csu-ess-330/refs/heads/main/resources/county-centroids.csv")
+
+covid_with_centroids <- data %>%
+  left_join(county_centroids, by = "fips")
+
+covid_wmc <- covid_with_centroids %>%
+    group_by(date) %>%
+    summarise(
+        total_cases = sum(cases, na.rm = TRUE),
+        weighted_lon = sum(LON * cases, na.rm = TRUE) / sum(cases, na.rm = TRUE),
+        weighted_lat = sum(LAT * cases, na.rm = TRUE) / sum(cases, na.rm = TRUE),
+        month = format(date, "%m")
+    )
+
+ggplot(covid_wmc, aes(x = weighted_lon, y = weighted_lat, color = month, size = total_cases)) +
+    borders("state", fill = "gray90", colour = "white") +
+    geom_point(alpha = 0.8) +
+    scale_color_viridis_d(option = "plasma") +
+    theme_minimal() +
+    labs(
+        title = "Weighted Mean Center of COVID-19 Cases Over Time",
+        x = "Longitude",
+        y = "Latitude",
+        color = "Month",
+        size = "Total Cases"
+    )
+```
+
