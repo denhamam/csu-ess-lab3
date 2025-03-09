@@ -1,7 +1,11 @@
 ---
-title: "lab-03"
+title: "Lab 3"
 format: html
+name: Ainsley Denham
 editor: visual
+
+execute:
+  echo: true
 ---
 
 ```{r}
@@ -11,6 +15,10 @@ library(flextable)
 library(tidyverse)
 library(dplyr)
 ```
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
 
 ## Question 1 
 
@@ -103,49 +111,50 @@ percap %>%
 
 
 ## Question 4
-```{r}
-colorado$date <- as.Date(colorado$date)
-latest_date <- max(colorado$date, na.rm = TRUE)
-last_14_days <- colorado %>%
-  filter(date >= (latest_date - 14))
-last_14_days_summary <- last_14_days %>%
-  group_by("county") %>%
-  summarize(
-    total_new_cases = sum(new_cases, na.rm = TRUE),
-    total_population = unique(POPESTIMATE2021), 
-    new_cases_per_100k = (total_new_cases / total_population) * 100000
-  ) %>%
-  arrange(desc(new_cases_per_100k))
-```
 
 ```{r}
 library(dplyr)
 library(lubridate)
+library(stringr)
 
-pop_data <- data %>%
+data$fips <- as.character(data$fips)
+pop_clean$fips <- as.character(pop_clean$fips)
+
+covid_with_pop <- left_join(data, pop_clean, by = "fips")
+
+pop_clean <- pop_clean %>%
   mutate(
     STATE_FIP = str_pad(as.character(STATE), 2, pad = "0"),
     COUNTY_FIP = str_pad(as.character(COUNTY), 3, pad = "0"),
-    FIP <- paste0(STATE_FIP, COUNTY_FIP)
-  )
-combined_data <- left_join(data, pop_data, by = fips)
+    FIP = paste0(STATE_FIP, COUNTY_FIP)
+  ) %>%
+  distinct(FIP, .keep_all = TRUE)
 
+combined_data <- left_join(data, pop_clean)
 combined_data <- combined_data %>%
   mutate(date = as.Date(date)) 
 
-max_date <- max(combined_data$date)
+max_date <- max(combined_data$date, na.rm = TRUE)
+
+combined_data <- combined_data %>%
+  arrange(county, date) %>% 
+  mutate(
+    new_cases = cases - lag(cases, default = first(cases)),
+    new_deaths = deaths - lag(deaths, default = first(deaths))
+  )
 
 last_14_days_data <- combined_data %>%
   filter(date >= (max_date - 14))
 
 new_cases_per_100k <- last_14_days_data %>%
-  group_by(NAME) %>%
+  group_by(county) %>%
   summarize(
     total_new_cases = sum(new_cases, na.rm = TRUE), 
-    population = first(`2021`), 
+    population = first(POPESTIMATE2021),
     new_cases_per_100k = (total_new_cases / population) * 100000
   ) %>%
   arrange(desc(new_cases_per_100k))
+
 
 top_5_new_cases <- head(new_cases_per_100k, 5)
 print(top_5_new_cases)
@@ -154,12 +163,11 @@ watch_list_counties <- new_cases_per_100k %>%
   filter(new_cases_per_100k > 100)
 
 print(nrow(watch_list_counties))
-
 print(watch_list_counties)
 
 
 ```
-
+## 350 counties meet the watch list conditions 
 
 ## Question 5
 
@@ -213,15 +221,10 @@ ggplot(high_covid_deaths, aes(x = reorder(county_name, -percentage_covid_deaths)
 
 ## Question 6 
 ```{r}
-library(dplyr)
-library(ggplot2)
-library(zoo)
-
 state_pop_data <- tibble(
     state = c("Alabama", "Colorado", "New York", "Ohio"),
     population = c(5024279, 5773714, 19453561, 11689100)
 )
-
 state_covid_per_capita <- data %>%
     filter(state %in% c("Alabama", "Colorado", "New York", "Ohio")) %>%
     left_join(state_pop_data, by = "state") %>%
@@ -234,51 +237,155 @@ state_covid_per_capita <- data %>%
         rolling_avg_per_100k = zoo::rollmean(new_cases_per_100k, k = 7, fill = NA, align = "right")
     ) %>%
     ungroup()
+```
 
-ggplot(state_covid_per_capita, aes(x = date, y = rolling_avg_per_100k, color = state)) +
-    geom_line(size = 1) +
+```{r}
+# Ensure the object exists
+if (!exists("state_covid_per_capita")) {
+    stop("The dataset state_covid_per_capita is not available!")
+}
+
+# Check the structure of the dataset
+str(state_covid_per_capita)
+
+# Proceed with the existing code
+head(state_covid_per_capita)  # Check the top rows
+sum(is.na(state_covid_per_capita$rolling_avg_per_100k))
+utils::head(state_covid_per_capita)
+str(state_covid_per_capita)
+
+# Ensure date column is correctly formatted
+state_covid_per_capita$date <- as.Date(state_covid_per_capita$date)
+
+# Convert state to a factor
+state_covid_per_capita$state <- factor(state_covid_per_capita$state)
+
+# Summarize the number of records per state
+state_covid_per_capita %>%
+    group_by(state) %>%
+    summarise(count = n())
+
+# Plot daily new cases
+ggplot(state_covid_per_capita, aes(x = date, y = daily_new_cases, color = state)) +
+    geom_line(linewidth = 1) +
     labs(
-        title = "7-day Rolling Average of New COVID-19 Cases per 100,000 Residents",
+        title = "Daily New COVID-19 Cases",
         subtitle = "Comparing Four States: New York, Colorado, Alabama, Ohio",
         x = "Date",
-        y = "New Cases per 100,000",
-        color = "State",
-        caption = "Data Source: NY Times & US Census"
+        y = "Daily New Cases",
+        color = "State"
     ) +
     theme_minimal()
+
+# Update the dataset with new columns
+state_covid_per_capita <- state_covid_per_capita %>%
+    group_by(state) %>%
+    mutate(
+        daily_new_cases = daily_cases - lag(daily_cases, default = first(daily_cases)),
+        new_cases_per_100k = (daily_new_cases / population) * 100000,
+        rolling_avg_per_100k = zoo::rollmean(new_cases_per_100k, k = 7, fill = NA, align = "right")
+    ) %>%
+    ungroup()
+
 ```
+## Scaling the population impacts the anaylsis because it helps states with different sizes seem more equal. For example, big states like California would just naturally have more cases than a small state like Ohio. By adjusting for population, the analysis centers on the rate of infection instead of number of cases. 
+
 
 ## Question 7
 ```{r}
-library(dplyr)
-library(readr)
-library(ggplot2)
+library(tidyverse)
+library(USAboundaries)
+library(USAboundariesData)
+library(data.table)
 
-county_centroids <- read_csv("https://raw.githubusercontent.com/mikejohnson51/csu-ess-330/refs/heads/main/resources/county-centroids.csv")
+counties <- USAboundaries::us_counties() %>%
+  dplyr::select(fips = geoid) %>%
+  sf::st_centroid() %>%
+  dplyr::mutate(LON = sf::st_coordinates(.)[, 1], LAT = sf::st_coordinates(.)[, 2]) %>%
+  sf::st_drop_geometry()
 
-covid_with_centroids <- data %>%
-  left_join(county_centroids, by = "fips")
+dir.create("../resources", recursive = TRUE)
+write.csv(counties, "../resources/county-centroids.csv", row.names = FALSE)
 
-covid_wmc <- covid_with_centroids %>%
-    group_by(date) %>%
-    summarise(
-        total_cases = sum(cases, na.rm = TRUE),
-        weighted_lon = sum(LON * cases, na.rm = TRUE) / sum(cases, na.rm = TRUE),
-        weighted_lat = sum(LAT * cases, na.rm = TRUE) / sum(cases, na.rm = TRUE),
-        month = format(date, "%m")
-    )
+county_centroids <- read_csv('https://raw.githubusercontent.com/mikejohnson51/csu-ess-330/refs/heads/main/resources/county-centroids.csv')
+
+county_centroids <- as.data.table(county_centroids)
+
+data <- as.data.table(data)
+
+data[, fips := as.character(fips)]
+
+covid_with_centroids <- merge(data, county_centroids, by = "fips", all.x = TRUE)
+
+covid_with_centroids[, date := as.Date(date, format = "%Y-%m-%d")]
+
+covid_wmc <- covid_with_centroids[, .(
+  total_cases = sum(cases, na.rm = TRUE),
+  weighted_lon = sum(LON * cases, na.rm = TRUE) / sum(cases, na.rm = TRUE),
+  weighted_lat = sum(LAT * cases, na.rm = TRUE) / sum(cases, na.rm = TRUE),
+  month = format(date, "%m")
+), by = date]
 
 ggplot(covid_wmc, aes(x = weighted_lon, y = weighted_lat, color = month, size = total_cases)) +
-    borders("state", fill = "gray90", colour = "white") +
-    geom_point(alpha = 0.8) +
-    scale_color_viridis_d(option = "plasma") +
-    theme_minimal() +
-    labs(
-        title = "Weighted Mean Center of COVID-19 Cases Over Time",
-        x = "Longitude",
-        y = "Latitude",
-        color = "Month",
-        size = "Total Cases"
-    )
+  borders("state", fill = "gray90", colour = "white") +
+  geom_point(alpha = 0.8) +
+  scale_color_viridis_d(option = "plasma") +
+  theme_minimal() +
+  labs(
+    title = "Weighted Mean Center of COVID-19 Cases Over Time",
+    x = "Longitude",
+    y = "Latitude",
+    color = "Month",
+    size = "Total Cases"
+  )
+
+```
+
+## Question 8 
+```{r}
+library(tidyverse)
+library(data.table)
+library(patchwork)
+
+covid_with_centroids[, deaths := as.numeric(deaths)]
+
+covid_wmc_deaths <- covid_with_centroids[, .(
+  total_deaths = sum(deaths, na.rm = TRUE),
+  weighted_lon_deaths = sum(LON * deaths, na.rm = TRUE) / sum(deaths, na.rm = TRUE),
+  weighted_lat_deaths = sum(LAT * deaths, na.rm = TRUE) / sum(deaths, na.rm = TRUE),
+  month = format(date, "%m")
+), by = date]
+
+plot_cases <- ggplot(covid_wmc, aes(x = weighted_lon, y = weighted_lat, color = month, size = total_cases)) +
+  borders("state", fill = "gray90", colour = "white") +
+  geom_point(alpha = 0.5) +
+  scale_color_viridis_d(option = "plasma") +
+  theme_minimal() +
+  labs(
+    title = "Weighted Mean Center of COVID-19 Cases Over Time",
+    x = "Longitude",
+    y = "Latitude",
+    color = "Month",
+    size = "Total Cases"
+  ) +
+  scale_size_continuous(range = c(0, 10)) +
+  theme(legend.position = "bottom")
+
+plot_deaths <- ggplot(covid_wmc_deaths, aes(x = weighted_lon_deaths, y = weighted_lat_deaths, color = month, size = total_deaths)) +
+  borders("state", fill = "gray90", colour = "white") +
+  geom_point(alpha = 0.5) +
+  scale_color_viridis_d(option = "magma") +
+  theme_minimal() +
+  labs(
+    title = "Weighted Mean Center of COVID-19 Deaths Over Time",
+    x = "Longitude",
+    y = "Latitude",
+    color = "Month",
+    size = "Total Deaths"
+  ) +
+  scale_size_continuous(range = c(0, 10)) +
+  theme(legend.position = "bottom")
+plot_cases | plot_deaths
+
 ```
 
