@@ -240,32 +240,25 @@ state_covid_per_capita <- data %>%
 ```
 
 ```{r}
-# Ensure the object exists
 if (!exists("state_covid_per_capita")) {
     stop("The dataset state_covid_per_capita is not available!")
 }
 
-# Check the structure of the dataset
 str(state_covid_per_capita)
 
-# Proceed with the existing code
-head(state_covid_per_capita)  # Check the top rows
+head(state_covid_per_capita)
 sum(is.na(state_covid_per_capita$rolling_avg_per_100k))
 utils::head(state_covid_per_capita)
 str(state_covid_per_capita)
 
-# Ensure date column is correctly formatted
 state_covid_per_capita$date <- as.Date(state_covid_per_capita$date)
 
-# Convert state to a factor
 state_covid_per_capita$state <- factor(state_covid_per_capita$state)
 
-# Summarize the number of records per state
 state_covid_per_capita %>%
     group_by(state) %>%
     summarise(count = n())
 
-# Plot daily new cases
 ggplot(state_covid_per_capita, aes(x = date, y = daily_new_cases, color = state)) +
     geom_line(linewidth = 1) +
     labs(
@@ -277,7 +270,6 @@ ggplot(state_covid_per_capita, aes(x = date, y = daily_new_cases, color = state)
     ) +
     theme_minimal()
 
-# Update the dataset with new columns
 state_covid_per_capita <- state_covid_per_capita %>%
     group_by(state) %>%
     mutate(
